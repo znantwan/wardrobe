@@ -1,0 +1,24 @@
+# Database (user data — don't commit)
+data/wardrobe.db
+
+# Env
+.env
+*.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# Streamlit
+.streamlit/secrets.toml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Uploads scratch dir
+uploads/
