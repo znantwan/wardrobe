@@ -1,24 +1,23 @@
-import base64
 import json
 import os
-import anthropic
+from openai import OpenAI
 
 _client = None
 
 
-def _get_client() -> anthropic.Anthropic:
+def _get_client() -> OpenAI:
     global _client
     if _client is None:
-        _client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
+        _client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
     return _client
 
 
-MODEL = "claude-sonnet-4-6"
+MODEL = "gpt-4o"
 
 
 def analyze_clothing_image(image_base64: str, mime_type: str = "image/jpeg") -> dict:
     """
-    Send a clothing image to Claude and get back structured metadata.
+    Send a clothing image to GPT-4o and get back structured metadata.
     Returns dict with: name, category, colors, description, tags
     """
     client = _get_client()
@@ -32,7 +31,7 @@ def analyze_clothing_image(image_base64: str, mime_type: str = "image/jpeg") -> 
 
 Return ONLY valid JSON, no markdown fences."""
 
-    response = client.messages.create(
+    response = client.chat.completions.create(
         model=MODEL,
         max_tokens=512,
         messages=[
@@ -40,12 +39,8 @@ Return ONLY valid JSON, no markdown fences."""
                 "role": "user",
                 "content": [
                     {
-                        "type": "image",
-                        "source": {
-                            "type": "base64",
-                            "media_type": mime_type,
-                            "data": image_base64,
-                        },
+                        "type": "image_url",
+                        "image_url": {"url": f"data:{mime_type};base64,{image_base64}"},
                     },
                     {"type": "text", "text": prompt},
                 ],
@@ -53,8 +48,7 @@ Return ONLY valid JSON, no markdown fences."""
         ],
     )
 
-    raw = response.content[0].text.strip()
-    # Strip markdown fences if Claude adds them anyway
+    raw = response.choices[0].message.content.strip()
     if raw.startswith("```"):
         raw = raw.split("```")[1]
         if raw.startswith("json"):
@@ -71,15 +65,13 @@ def generate_outfit(
     extra_notes: str = "",
 ) -> dict:
     """
-    Ask Claude to build an outfit from the wardrobe.
+    Ask GPT-4o to build an outfit from the wardrobe.
     Returns dict with: outfit (list of item ids), explanation, styling_tips
     """
     client = _get_client()
 
-    # Build the style profile system prompt (cached)
     profile_text = _build_profile_text(style_profile)
 
-    # Build wardrobe context
     available = [item for item in wardrobe if item["id"] not in recently_worn_ids]
     recently_worn = [item for item in wardrobe if item["id"] in recently_worn_ids]
 
@@ -90,9 +82,7 @@ def generate_outfit(
             f"Colors: {', '.join(item['colors'])} | {item['description']} | Tags: {', '.join(item['tags'])}"
         )
 
-    recently_worn_lines = []
-    for item in recently_worn:
-        recently_worn_lines.append(f"ID {item['id']} | {item['name']}")
+    recently_worn_lines = [f"ID {item['id']} | {item['name']}" for item in recently_worn]
 
     user_prompt = f"""Build an outfit for: {occasion}{(' in ' + weather) if weather else ''}.
 {('Extra notes: ' + extra_notes) if extra_notes else ''}
@@ -110,20 +100,16 @@ Return a JSON object with:
 
 Return ONLY valid JSON, no markdown fences."""
 
-    response = client.messages.create(
+    response = client.chat.completions.create(
         model=MODEL,
         max_tokens=1024,
-        system=[
-            {
-                "type": "text",
-                "text": profile_text,
-                "cache_control": {"type": "ephemeral"},  # cache the style profile
-            }
+        messages=[
+            {"role": "system", "content": profile_text},
+            {"role": "user", "content": user_prompt},
         ],
-        messages=[{"role": "user", "content": user_prompt}],
     )
 
-    raw = response.content[0].text.strip()
+    raw = response.choices[0].message.content.strip()
     if raw.startswith("```"):
         raw = raw.split("```")[1]
         if raw.startswith("json"):
