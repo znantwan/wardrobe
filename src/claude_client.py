@@ -1,23 +1,24 @@
+import base64
 import json
 import os
-from openai import OpenAI
+import anthropic
 
 _client = None
 
 
-def _get_client() -> OpenAI:
+def _get_client() -> anthropic.Anthropic:
     global _client
     if _client is None:
-        _client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+        _client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
     return _client
 
 
-MODEL = "gpt-4o"
+MODEL = "claude-sonnet-4-6"
 
 
 def analyze_clothing_image(image_base64: str, mime_type: str = "image/jpeg") -> dict:
     """
-    Send a clothing image to GPT-4o and get back structured metadata.
+    Send a clothing image to Claude and get back structured metadata.
     Returns dict with: name, category, colors, description, tags
     """
     client = _get_client()
@@ -31,7 +32,7 @@ def analyze_clothing_image(image_base64: str, mime_type: str = "image/jpeg") -> 
 
 Return ONLY valid JSON, no markdown fences."""
 
-    response = client.chat.completions.create(
+    response = client.messages.create(
         model=MODEL,
         max_tokens=512,
         messages=[
@@ -39,8 +40,12 @@ Return ONLY valid JSON, no markdown fences."""
                 "role": "user",
                 "content": [
                     {
-                        "type": "image_url",
-                        "image_url": {"url": f"data:{mime_type};base64,{image_base64}"},
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": mime_type,
+                            "data": image_base64,
+                        },
                     },
                     {"type": "text", "text": prompt},
                 ],
@@ -48,7 +53,7 @@ Return ONLY valid JSON, no markdown fences."""
         ],
     )
 
-    raw = response.choices[0].message.content.strip()
+    raw = response.content[0].text.strip()
     if raw.startswith("```"):
         raw = raw.split("```")[1]
         if raw.startswith("json"):
@@ -65,7 +70,7 @@ def generate_outfit(
     extra_notes: str = "",
 ) -> dict:
     """
-    Ask GPT-4o to build an outfit from the wardrobe.
+    Ask Claude to build an outfit from the wardrobe.
     Returns dict with: outfit (list of item ids), explanation, styling_tips
     """
     client = _get_client()
@@ -100,16 +105,20 @@ Return a JSON object with:
 
 Return ONLY valid JSON, no markdown fences."""
 
-    response = client.chat.completions.create(
+    response = client.messages.create(
         model=MODEL,
         max_tokens=1024,
-        messages=[
-            {"role": "system", "content": profile_text},
-            {"role": "user", "content": user_prompt},
+        system=[
+            {
+                "type": "text",
+                "text": profile_text,
+                "cache_control": {"type": "ephemeral"},
+            }
         ],
+        messages=[{"role": "user", "content": user_prompt}],
     )
 
-    raw = response.choices[0].message.content.strip()
+    raw = response.content[0].text.strip()
     if raw.startswith("```"):
         raw = raw.split("```")[1]
         if raw.startswith("json"):
